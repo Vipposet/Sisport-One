@@ -14,6 +14,7 @@
             --success: #28a745;
             --warning: #ffc107;
             --danger: #dc3545;
+            --info: #17a2b8;
         }
 
         * {
@@ -126,10 +127,11 @@
             border: 1px solid var(--border);
         }
 
+        .btn-info { background-color: var(--info); }
         .btn-approve { background-color: var(--success); }
         .btn-reject { background-color: var(--danger); }
         .btn-action { background-color: var(--warning); color: #000; }
-        .btn-voltar { background-color: #6c757d; font-size: 0.8em; padding: 5px 10px; width: auto; }
+        .btn-voltar { background-color: #6c757d; font-size: 0.8em; padding: 5px 10px; width: auto; margin-bottom: 0; }
 
         .card-item {
             background: #f9f9f9;
@@ -160,12 +162,12 @@
             color: var(--primary);
             border-bottom: 1px solid var(--border);
             padding-bottom: 5px;
+            text-transform: capitalize;
         }
 
         /* Classe principal para esconder elementos */
         .escondido { display: none !important; }
 
-        /* Estilos do Menu Inicial */
         .menu-inicial {
             display: flex;
             flex-direction: column;
@@ -192,7 +194,9 @@
         <div class="panel" id="tela-menu">
             <h2>Selecione seu Perfil</h2>
             <div class="menu-inicial">
-                <button onclick="abrirColaborador()">Fazer uma Solicitação</button>
+                <button id="btn-ver-status" class="btn-info escondido" onclick="abrirStatus()">Ver Status do Pedido Atual</button>
+                
+                <button onclick="abrirFormulario()">Fazer Nova Solicitação</button>
                 <button class="btn-outline" onclick="abrirLogin()" style="border-color: var(--primary); color: var(--primary);">Acesso da Gestão (Login)</button>
             </div>
         </div>
@@ -208,12 +212,17 @@
             </div>
             <div class="form-group">
                 <label for="motivo">Motivo da Saída:</label>
-                <select id="motivo">
+                <select id="motivo" onchange="checarMotivoOutro()">
                     <option value="Consulta Médica">Consulta Médica</option>
                     <option value="Serviço Externo">Serviço Externo</option>
                     <option value="Assunto Particular">Assunto Particular</option>
                     <option value="Consulta de Equipamento">Consulta de Equipamento</option>
+                    <option value="Outro">Outro (Especificar...)</option>
                 </select>
+            </div>
+            <div class="form-group escondido" id="div-motivo-outro">
+                <label for="motivo-outro">Especifique o Motivo:</label>
+                <input type="text" id="motivo-outro" placeholder="Digite o motivo aqui...">
             </div>
             <button onclick="solicitarSaida()">Enviar Solicitação</button>
         </div>
@@ -225,7 +234,7 @@
             </h2>
             <div id="meu-status-detalhes" class="card-item" style="text-align: center; padding: 20px;">
                 </div>
-            <button class="btn-outline" onclick="novaSolicitacao()">Fazer Nova Solicitação</button>
+            <button class="btn-outline" onclick="abrirFormulario()">Fazer Outra Solicitação</button>
         </div>
 
 
@@ -246,16 +255,12 @@
                 RH (Aprovações)
                 <button class="btn-voltar" onclick="voltarMenu()" style="background: var(--danger);">Sair</button>
             </h2>
-            <div id="lista-rh">
-                <p style="font-size: 0.9em; color: #666;">Nenhuma solicitação pendente.</p>
-            </div>
+            <div id="lista-rh"></div>
         </div>
 
         <div class="panel gestao-painel escondido">
             <h2>Portaria (Controle)</h2>
-            <div id="lista-portaria">
-                <p style="font-size: 0.9em; color: #666;">Aguardando liberações...</p>
-            </div>
+            <div id="lista-portaria"></div>
         </div>
 
         <div class="panel panel-large gestao-painel escondido">
@@ -284,12 +289,10 @@
     const colRef = collection(db, "solicitacoes");
 
     let solicitacoes = [];
-    const motivosPossiveis = [
-        "Consulta Médica", "Serviço Externo", "Assunto Particular", "Consulta de Equipamento"
-    ];
-
-    // DEFINA SUA SENHA DE ACESSO AQUI
     const SENHA_ADMIN = "12345"; 
+    
+    // Variável para saber em qual tela estamos e não atualizar coisas na hora errada
+    let telaAtual = "menu"; 
 
     function getHoraAtual() {
         return new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -300,8 +303,11 @@
         snapshot.docs.forEach(documento => {
             solicitacoes.push({ ...documento.data(), docId: documento.id });
         });
-        atualizarTelas();
-        checarStatusColaborador(); // Atualiza a tela de quem pediu, caso esteja aberta
+        
+        atualizarBotoesMenu(); // Checa se deve mostrar o botão "Ver status"
+
+        if (telaAtual === "gestao") atualizarTelasGestao();
+        if (telaAtual === "status") renderizarTelaStatus();
     });
 
     // ================= NAVEGAÇÃO DE TELAS =================
@@ -316,18 +322,42 @@
 
     window.voltarMenu = function() {
         esconderTudo();
+        telaAtual = "menu";
         document.getElementById('tela-menu').classList.remove('escondido');
-        document.getElementById('senha').value = ''; // Limpa a senha ao sair
+        document.getElementById('senha').value = ''; 
+        atualizarBotoesMenu();
     }
 
     window.abrirLogin = function() {
         esconderTudo();
+        telaAtual = "login";
         document.getElementById('tela-login').classList.remove('escondido');
     }
 
-    window.abrirColaborador = function() {
+    window.abrirFormulario = function() {
         esconderTudo();
-        checarStatusColaborador(); // Decide se mostra o formulário ou o status salvo
+        telaAtual = "formulario";
+        document.getElementById('tela-formulario').classList.remove('escondido');
+        
+        // Reseta o campo 'Outro' sempre que abrir
+        document.getElementById('motivo').value = 'Consulta Médica';
+        checarMotivoOutro();
+    }
+
+    window.abrirStatus = function() {
+        esconderTudo();
+        telaAtual = "status";
+        document.getElementById('tela-status').classList.remove('escondido');
+        renderizarTelaStatus();
+    }
+
+    function atualizarBotoesMenu() {
+        const meuId = localStorage.getItem("minhaSolicitacaoId");
+        if (meuId) {
+            document.getElementById('btn-ver-status').classList.remove('escondido');
+        } else {
+            document.getElementById('btn-ver-status').classList.add('escondido');
+        }
     }
 
     // ================= SISTEMA DE LOGIN (GESTOR) =================
@@ -336,21 +366,42 @@
         const senhaDigitada = document.getElementById('senha').value;
         if (senhaDigitada === SENHA_ADMIN) {
             esconderTudo();
+            telaAtual = "gestao";
             document.querySelectorAll('.gestao-painel').forEach(p => p.classList.remove('escondido'));
+            atualizarTelasGestao();
         } else {
             alert("Senha incorreta! Tente novamente.");
         }
     };
 
     // ================= SISTEMA DO COLABORADOR =================
+
+    window.checarMotivoOutro = function() {
+        const motivo = document.getElementById('motivo').value;
+        const divOutro = document.getElementById('div-motivo-outro');
+        if (motivo === 'Outro') {
+            divOutro.classList.remove('escondido');
+        } else {
+            divOutro.classList.add('escondido');
+        }
+    }
     
     window.solicitarSaida = async function() {
         const nome = document.getElementById('nome').value;
-        const motivo = document.getElementById('motivo').value;
+        let motivo = document.getElementById('motivo').value;
 
         if (!nome) {
             alert("Por favor, insira o nome do colaborador.");
             return;
+        }
+
+        // Puxa o texto se a opção for "Outro"
+        if (motivo === 'Outro') {
+            motivo = document.getElementById('motivo-outro').value.trim();
+            if (!motivo) {
+                alert("Por favor, especifique o motivo.");
+                return;
+            }
         }
 
         const novaSolicitacao = {
@@ -365,35 +416,22 @@
         };
 
         const docRef = await addDoc(colRef, novaSolicitacao);
+        
+        // Só substitui a memória do celular DEPOIS de enviar com sucesso
         localStorage.setItem("minhaSolicitacaoId", docRef.id);
         
         document.getElementById('nome').value = ''; 
-        checarStatusColaborador();
+        document.getElementById('motivo-outro').value = ''; 
+        abrirStatus(); // Vai direto ver o pedido
     };
 
-    window.novaSolicitacao = function() {
-        localStorage.removeItem("minhaSolicitacaoId");
-        checarStatusColaborador();
-    }
-
-    function checarStatusColaborador() {
-        // Só mexe nessas telas se elas não estiverem no modo gestor
-        const gestaoAberta = !document.querySelector('.gestao-painel').classList.contains('escondido');
-        if(gestaoAberta) return; 
-
+    function renderizarTelaStatus() {
         const meuId = localStorage.getItem("minhaSolicitacaoId");
-        const telaFormulario = document.getElementById('tela-formulario');
-        const telaStatus = document.getElementById('tela-status');
         const detalhesStatus = document.getElementById('meu-status-detalhes');
 
         if (meuId) {
             const minhaSol = solicitacoes.find(s => s.docId === meuId);
             if (minhaSol) {
-                // Esconde o menu e mostra a tela de status do pedido
-                document.getElementById('tela-menu').classList.add('escondido');
-                telaFormulario.classList.add('escondido');
-                telaStatus.classList.remove('escondido');
-
                 let classeStatus = 
                     minhaSol.status === 'CONCLUIDO' ? 'status-concluido' : 
                     minhaSol.status === 'REJEITADO' ? 'status-rejeitado' : 
@@ -401,27 +439,25 @@
                     minhaSol.status === 'APROVADO' ? 'status-aprovado' : 'status-ausente';
 
                 let motivoRejeicao = minhaSol.status === 'REJEITADO' 
-                    ? `<br><br><span style="color: red;">Motivo: ${minhaSol.motivoRejeicao}</span>` 
+                    ? `<br><br><span style="color: red;"><strong>Motivo da Recusa:</strong><br>${minhaSol.motivoRejeicao}</span>` 
                     : '';
 
                 detalhesStatus.innerHTML = `
                     <h3>Olá, ${minhaSol.nome}</h3>
-                    <p style="margin-top: 10px;">Sua solicitação está:</p>
-                    <div style="font-size: 1.5em; margin: 15px 0;" class="status ${classeStatus}">
+                    <p style="margin-top: 5px; color: #666;">Motivo: ${minhaSol.motivo}</p>
+                    <p style="margin-top: 15px;">Sua solicitação está:</p>
+                    <div style="font-size: 1.5em; margin: 15px 0; display: inline-block;" class="status ${classeStatus}">
                         ${minhaSol.status}
                     </div>
                     ${motivoRejeicao}
                 `;
-                return;
+            } else {
+                detalhesStatus.innerHTML = "<p>Solicitação não encontrada no sistema.</p>";
             }
         }
-        
-        // Se chegou aqui, não tem pedido em andamento. Mostra o formulário.
-        telaFormulario.classList.remove('escondido');
-        telaStatus.classList.add('escondido');
     }
 
-    // ================= FUNÇÕES DO GESTOR (AVALIAR/PORTARIA) =================
+    // ================= FUNÇÕES DO GESTOR =================
     
     window.avaliar = async function(docId, acao) {
         const docRef = doc(db, "solicitacoes", docId);
@@ -429,7 +465,7 @@
             await updateDoc(docRef, { status: 'APROVADO' });
         } else if (acao === 'rejeitar') {
             let motivo = prompt("Escreva o motivo da rejeição (Opcional):");
-            if (motivo !== null) { // Só rejeita se a pessoa não cancelar o prompt
+            if (motivo !== null) { 
                 await updateDoc(docRef, { 
                     status: 'REJEITADO',
                     motivoRejeicao: motivo.trim() !== '' ? motivo : 'Sem justificativa'
@@ -447,14 +483,10 @@
         }
     };
 
-    // ================= ATUALIZAR LISTAS VISUAIS =================
-    
-    function atualizarTelas() {
+    function atualizarTelasGestao() {
         const listaRh = document.getElementById('lista-rh');
         const listaPortaria = document.getElementById('lista-portaria');
         const listaHistorico = document.getElementById('lista-historico');
-
-        if(!listaRh) return;
 
         listaRh.innerHTML = '';
         listaPortaria.innerHTML = '';
@@ -482,7 +514,7 @@
                 portariaVazia = false;
                 let botoesPortaria = s.status === 'APROVADO' 
                     ? `<button class="btn-small btn-action" onclick="registrarPortaria('${s.docId}', 'saida')">Registrar Saída</button>`
-                    : `<button class="btn-small" style="background:#555;" onclick="registrarPortaria('${s.docId}', 'retorno')">Registrar Retorno</button>`;
+                    : `<button class="btn-small" style="background:#555; color:#fff;" onclick="registrarPortaria('${s.docId}', 'retorno')">Registrar Retorno</button>`;
 
                 let statusClass = s.status === 'APROVADO' ? 'status-aprovado' : 'status-ausente';
                 let statusText = s.status === 'APROVADO' ? 'Liberado p/ Sair' : 'Fora da Empresa';
@@ -497,17 +529,17 @@
             }
         });
 
+        // Histórico Dinâmico (Lida com qualquer motivo digitado)
         let historicoHTML = '';
-        let temHistoricoGeral = false;
+        const motivosUsados = [...new Set(solicitacoesReversas.map(s => s.motivo))]; // Pega motivos únicos
 
-        motivosPossiveis.forEach(motivo => {
-            const itensDoMotivo = solicitacoesReversas.filter(s => s.motivo === motivo);
+        motivosUsados.forEach(motivoCategoria => {
+            const itens = solicitacoesReversas.filter(s => s.motivo === motivoCategoria);
             
-            if (itensDoMotivo.length > 0) {
-                temHistoricoGeral = true;
-                historicoHTML += `<h3 class="categoria-titulo">${motivo}</h3>`;
+            if (itens.length > 0) {
+                historicoHTML += `<h3 class="categoria-titulo">${motivoCategoria}</h3>`;
                 
-                itensDoMotivo.forEach(s => {
+                itens.forEach(s => {
                     let classeStatusHist = 
                         s.status === 'CONCLUIDO' ? 'status-concluido' : 
                         s.status === 'REJEITADO' ? 'status-rejeitado' : 
@@ -533,7 +565,7 @@
             }
         });
 
-        listaHistorico.innerHTML = temHistoricoGeral ? historicoHTML : '<p style="font-size: 0.9em; color: #666;">Sem movimentações.</p>';
+        listaHistorico.innerHTML = motivosUsados.length > 0 ? historicoHTML : '<p style="font-size: 0.9em; color: #666;">Sem movimentações.</p>';
         if (rhVazio) listaRh.innerHTML = '<p style="font-size: 0.9em; color: #666;">Nenhuma solicitação pendente.</p>';
         if (portariaVazia) listaPortaria.innerHTML = '<p style="font-size: 0.9em; color: #666;">Aguardando liberações...</p>';
     }
